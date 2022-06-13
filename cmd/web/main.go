@@ -2,10 +2,14 @@ package main
 
 import (
 	"database/sql"
+	"encoding/gob"
+	"gosubs/data"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	"time"
 
@@ -37,19 +41,23 @@ func main() {
 
 	//config
 	app := Config{
-		Session: sessions,
-		DB: db,
-		Wg: &wg,
-		InfoLog: infoLog,
+		Session:  sessions,
+		DB:       db,
+		Wg:       &wg,
+		InfoLog:  infoLog,
 		ErrorLog: errorLog,
+		Models:   data.New(db),
 	}
+
+	//graceful shutdown
+	go app.gracefulShutdown()
 
 	app.serve()
 }
 
-func(app *Config) serve() {
+func (app *Config) serve() {
 	server := http.Server{
-		Addr: port,
+		Addr:    port,
 		Handler: app.routes(),
 	}
 
@@ -57,7 +65,6 @@ func(app *Config) serve() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Panic(err)
 	}
-
 
 }
 
@@ -111,9 +118,11 @@ func openDB(dsn string) (*sql.DB, error) {
 }
 
 func initSessions() *scs.SessionManager {
+	gob.Register(data.User{}) //biar session bisa nampung struct User
+
 	sess := scs.New()
 
-	sess.Store = redisstore.New( initRedis() )
+	sess.Store = redisstore.New(initRedis())
 	sess.Lifetime = 24 * time.Hour
 	sess.Cookie.Persist = true
 	sess.Cookie.SameSite = http.SameSiteLaxMode
@@ -129,4 +138,21 @@ func initRedis() *redis.Pool {
 			return redis.Dial("tcp", os.Getenv("REDIS"))
 		},
 	}
+}
+
+func (app *Config) gracefulShutdown() {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+
+	<-quit
+
+	app.shutdown()
+
+	os.Exit(1)
+}
+
+func (app *Config) shutdown() {
+	app.Wg.Wait()
+
+	app.InfoLog.Println("Shutting down...")
 }

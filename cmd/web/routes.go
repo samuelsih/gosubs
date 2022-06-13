@@ -10,10 +10,16 @@ import (
 func (app *Config) routes() http.Handler {
 	mux := chi.NewRouter()
 
-	//recoverer biar panic auto recover sendiri
-	mux.Use(middleware.Recoverer)
-	
-	mux.Get("/", app.Handler)
+	mux.Use(middleware.Recoverer) //recoverer biar panic auto recover sendiri
+	mux.Use(app.SessionLoad)
+
+	mux.Get("/", app.HomePage)
+	mux.Get("/login", app.LoginPage)
+	mux.Post("/login", app.HandleLogin)
+	mux.Get("/logout", app.Logout)
+	mux.Get("/register", app.RegisterPage)
+	mux.Post("/register", app.HandleRegister)
+	mux.Get("/activate-account", app.ActivateAccount)
 
 	return mux
 }
