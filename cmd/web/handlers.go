@@ -23,6 +23,13 @@ func (app *Config) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := app.Models.User.GetByEmail(email)
 	if err != nil {
+		msg := Message {
+			To: email,
+			Subject: "Failed log in attempt",
+			Data: "No user named " + email,
+		} 
+		app.sendMail(msg)
+
 		app.Session.Put(r.Context(), "error", "invalid credentials!")
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
@@ -37,6 +44,13 @@ func (app *Config) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !validPassword {
+		msg := Message {
+			To: email,
+			Subject: "Failed log in attempt",
+			Data: "Invalid login attempt",
+		} 
+		app.sendMail(msg)
+
 		app.Session.Put(r.Context(), "error", "wrong password!")
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return

@@ -49,6 +49,9 @@ func main() {
 		Models:   data.New(db),
 	}
 
+	app.Mailer = app.createMail()
+	go app.listenForMail()
+
 	//graceful shutdown
 	go app.gracefulShutdown()
 
@@ -83,6 +86,7 @@ func connectToDB() *sql.DB {
 
 	dsn := os.Getenv("DSN")
 
+	//kalo udah sampe 10x belum bisa connect, berarti ada masalah
 	for {
 		conn, err := openDB(dsn)
 		if err != nil {
@@ -152,7 +156,30 @@ func (app *Config) gracefulShutdown() {
 }
 
 func (app *Config) shutdown() {
+	app.InfoLog.Println("cleanup channel")
+
 	app.Wg.Wait()
 
+	app.Mailer.DoneChan <- true
+
 	app.InfoLog.Println("Shutting down...")
+
+	close(app.Mailer.MailerChan)
+	close(app.Mailer.ErrorChan)
+	close(app.Mailer.DoneChan)
+}
+
+func (app *Config) createMail() Mail {
+	return Mail{
+		Domain: "localhost",
+		Host: "localhost",
+		Port: 1025,
+		Encryption: "none",
+		FromName: "Info",
+		FromAddress: "info@gmail.com",
+		Wg: app.Wg,
+		MailerChan: make(chan Message, 100),
+		ErrorChan: make(chan error),
+		DoneChan: make(chan bool),
+	}
 }
