@@ -37,6 +37,7 @@ type Message struct {
 	Template    string
 }
 
+//pengatur untuk mendengarkan setiap channel yang masuk dari mailer
 func (app *Config) listenForMail() {
 	for {
 		select {
@@ -52,6 +53,7 @@ func (app *Config) listenForMail() {
 	}
 }
 
+//pengirim email
 func (m *Mail) sendEmail(msg Message, errorChan chan error) {
 	defer m.Wg.Done()
 

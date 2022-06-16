@@ -10,6 +10,7 @@ import (
 	"github.com/alexedwards/scs/v2"
 )
 
+//main struct untuk gosubs
 type Config struct {
 	Session  *scs.SessionManager
 	DB       *sql.DB
