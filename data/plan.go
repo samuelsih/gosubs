@@ -74,6 +74,10 @@ func (p *Plan) GetById(id int) (*Plan, error) {
 		return nil, err
 	}
 
+	plan.PlanAmountFormatted = plan.AmountForDisplay()
+
+	println("INI AMOUNT FORMATTED : ", plan.PlanAmountFormatted)
+
 	return &plan, nil
 }
 

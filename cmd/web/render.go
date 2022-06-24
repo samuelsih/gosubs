@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"gosubs/data"
 	"html/template"
 	"net/http"
 	"time"
@@ -19,7 +20,7 @@ type TemplateData struct {
 	Error         string
 	Authenticated bool
 	Now           time.Time
-	// User *data.User
+	User          *data.User
 }
 
 func (app *Config) render(w http.ResponseWriter, r *http.Request, t string, td *TemplateData) {
@@ -62,6 +63,13 @@ func (app *Config) AddDefaultData(td *TemplateData, r *http.Request) *TemplateDa
 
 	if app.IsAuthenticated(r) {
 		td.Authenticated = true
+		user, ok := app.Session.Get(r.Context(), "user").(data.User)
+		if !ok {
+			app.ErrorLog.Println("cant get user from session")
+		} else {
+			td.User = &user
+		}
+
 	}
 
 	td.Now = time.Now()

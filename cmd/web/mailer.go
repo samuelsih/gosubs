@@ -27,27 +27,28 @@ type Mail struct {
 }
 
 type Message struct {
-	From        string
-	FromName    string
-	To          string
-	Subject     string
-	Attachments []string
-	Data        any
-	DataMap     map[string]any
-	Template    string
+	From          string
+	FromName      string
+	To            string
+	Subject       string
+	Attachments   []string
+	AttachmentMap map[string]string
+	Data          any
+	DataMap       map[string]any
+	Template      string
 }
 
 //pengatur untuk mendengarkan setiap channel yang masuk dari mailer
 func (app *Config) listenForMail() {
 	for {
 		select {
-		case msg := <- app.Mailer.MailerChan:
+		case msg := <-app.Mailer.MailerChan:
 			go app.Mailer.sendEmail(msg, app.Mailer.ErrorChan)
 
-		case err := <- app.Mailer.ErrorChan:
+		case err := <-app.Mailer.ErrorChan:
 			app.ErrorLog.Println(err)
-		
-		case <- app.Mailer.DoneChan:
+
+		case <-app.Mailer.DoneChan:
 			return
 		}
 	}
@@ -58,7 +59,7 @@ func (m *Mail) sendEmail(msg Message, errorChan chan error) {
 	defer m.Wg.Done()
 
 	if msg.Template == "" {
-		msg.Template = "mail"	
+		msg.Template = "mail"
 	}
 
 	if msg.From == "" {
@@ -69,20 +70,25 @@ func (m *Mail) sendEmail(msg Message, errorChan chan error) {
 		msg.FromName = m.FromName
 	}
 
-	msg.DataMap = map[string]any{
-		"message": msg.Data,
+	if msg.AttachmentMap == nil {
+		msg.AttachmentMap = make(map[string]string)
 	}
+
+	if len(msg.DataMap) == 0 {
+		msg.DataMap = make(map[string]any)
+	}
+
+	msg.DataMap["message"] = msg.Data
 
 	htmlMessage, err := m.buildHTMLMessage(msg)
 	if err != nil {
 		errorChan <- err
-	} 
+	}
 
 	plainMessage, err := m.buildPlainTextMessage(msg)
 	if err != nil {
 		errorChan <- err
 	}
-
 
 	//mail server
 	server := mail.NewSMTPClient()
@@ -94,7 +100,6 @@ func (m *Mail) sendEmail(msg Message, errorChan chan error) {
 	server.KeepAlive = false
 	server.ConnectTimeout = 10 * time.Second
 	server.SendTimeout = 10 * time.Second
-
 
 	smtpClient, err := server.Connect()
 	if err != nil {
@@ -110,6 +115,12 @@ func (m *Mail) sendEmail(msg Message, errorChan chan error) {
 	if len(msg.Attachments) > 0 {
 		for _, attachment := range msg.Attachments {
 			email.AddAttachment(attachment)
+		}
+	}
+
+	if len(msg.AttachmentMap) > 0 {
+		for key, value := range msg.AttachmentMap {
+			email.AddAttachment(value, key)
 		}
 	}
 
@@ -140,13 +151,13 @@ func (m *Mail) buildHTMLMessage(msg Message) (string, error) {
 	return formattedMessage, nil
 }
 
-func(m *Mail) inlineCSS(s string) (string, error) {
+func (m *Mail) inlineCSS(s string) (string, error) {
 	options := premailer.Options{
-		RemoveClasses: false,
-		CssToAttributes: false,
+		RemoveClasses:     false,
+		CssToAttributes:   false,
 		KeepBangImportant: true,
 	}
-	
+
 	prem, err := premailer.NewPremailerFromString(s, &options)
 	if err != nil {
 		return "", err
@@ -178,10 +189,10 @@ func (m *Mail) getEncryptionMethod(e string) mail.Encryption {
 	switch e {
 	case "tls":
 		return mail.EncryptionSTARTTLS
-	
+
 	case "ssl":
 		return mail.EncryptionSSLTLS
-	
+
 	case "none":
 		return mail.EncryptionNone
 

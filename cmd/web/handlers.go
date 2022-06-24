@@ -1,10 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"gosubs/data"
 	"html/template"
 	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/phpdave11/gofpdf"
+	"github.com/phpdave11/gofpdf/contrib/gofpdi"
 )
 
 func (app *Config) HomePage(w http.ResponseWriter, r *http.Request) {
@@ -149,4 +155,148 @@ func (app *Config) ActivateAccount(w http.ResponseWriter, r *http.Request) {
 
 	app.Session.Put(r.Context(), "flash", "Account activated!!")
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+
+func(app *Config) ChooseSubscription(w http.ResponseWriter, r *http.Request) {
+	if !app.Session.Exists(r.Context(), "userID") {
+		app.Session.Put(r.Context(), "warning", "You must login before see this page")
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	plans, err := app.Models.Plan.GetAll()
+	if err != nil {
+		app.ErrorLog.Println(err)
+	}
+
+	data := map[string]any{
+		"plans": plans,
+	}
+
+	app.render(w, r, "plans.page.gohtml", &TemplateData{
+		Data: data,
+	})
+}
+
+
+func(app *Config) SubscribeToPlan(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+
+	planId, err := strconv.Atoi(id)
+	if err != nil {
+		app.Session.Put(r.Context(), "error", "Unknown type of id")
+		http.Redirect(w, r, "/members/plans", http.StatusSeeOther)
+		return
+	}
+
+	plan, err := app.Models.Plan.GetById(planId)
+	if err != nil {
+		app.Session.Put(r.Context(), "error", "Unable to find plan")
+		http.Redirect(w, r, "/members/plans", http.StatusSeeOther)
+		return
+	}
+
+	user, ok := app.Session.Get(r.Context(), "user").(data.User)
+	if !ok {
+		app.Session.Put(r.Context(), "error", "Please log in first")
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	app.Wg.Add(1)
+	go func() {
+		defer app.Wg.Done()
+		invoice, err := app.getInvoice(user, plan)
+		if err != nil {
+			app.ErrorChan <- err
+			return
+		}
+
+		msg := Message{
+			To: user.Email,
+			Subject: "Your invoice",
+			Data: invoice,
+			Template: "invoice",
+		}
+
+		app.sendMail(msg)
+	}()
+
+	app.Wg.Add(1)
+	go func() {
+		defer app.Wg.Done()
+
+		pdf := app.generateManualPDF(user, plan)
+		err := pdf.OutputFileAndClose(fmt.Sprintf("./tmp/%d_manual.pdf", user.ID))
+		if err != nil {
+			app.ErrorChan <- err
+			return
+		}
+
+		msg := Message{
+			To: user.Email,
+			Subject: "Your Manual",
+			Data: "Your user manual is attached",
+			AttachmentMap: map[string]string{
+				"Manual.pdf": fmt.Sprintf("./tmp/%d_manual.pdf", user.ID),
+			},
+		}
+		
+		app.sendMail(msg)
+
+		//test error
+		app.ErrorChan <- errors.New("some custom error")
+	}()
+
+	app.Wg.Wait()
+
+	err = app.Models.Plan.SubscribeUserToPlan(user, *plan)
+	if err != nil {
+		app.Session.Put(r.Context(), "error", "Error subscribing to that plan!")
+		http.Redirect(w, r, "/members/plans", http.StatusSeeOther)
+		return
+	}
+
+	currentUser, err := app.Models.User.GetOne(user.ID)
+	if err != nil {
+		app.Session.Put(r.Context(), "error", "Error getting current user!")
+		http.Redirect(w, r, "/members/plans", http.StatusSeeOther)
+		return
+	} 
+
+	app.Session.Put(r.Context(), "user", currentUser)
+
+	app.Session.Put(r.Context(), "flash", "Subscribed")
+	http.Redirect(w, r, "/members/plans", http.StatusSeeOther)
+}
+
+func (app *Config) getInvoice(user data.User, plan *data.Plan) (string, error) {
+	return plan.PlanAmountFormatted, nil
+}
+
+func (app *Config) generateManualPDF(user data.User, plan *data.Plan) *gofpdf.Fpdf {
+	pdf := gofpdf.New("P", "mm", "Letter", "")
+	pdf.SetMargins(10, 13, 10)
+
+	importer := gofpdi.NewImporter()
+
+	//simulasi kalo nge create nya lama
+	time.Sleep(5 * time.Second)
+
+	template := importer.ImportPage(pdf, "./pdf/manual.pdf", 1, "/MediaBox")
+	pdf.AddPage()
+
+	//215.9 --> biar ke tengah
+	importer.UseImportedTemplate(pdf, template, 0, 0, 215.9, 0)
+
+	pdf.SetX(75)
+	pdf.SetY(150)
+
+	pdf.SetFont("Arial", "", 12)
+	pdf.MultiCell(0, 4, fmt.Sprintf("%s %s", user.FirstName, user.LastName), "", "C", false)
+	pdf.Ln(5)
+	pdf.MultiCell(0, 4, fmt.Sprintf("%s User Guide", plan.PlanName), "", "C", false)
+
+	return pdf
 }
